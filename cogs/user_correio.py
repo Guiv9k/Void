@@ -14,7 +14,7 @@ load_dotenv()
 CHAVE_API = os.getenv("GEMINI_KEY") or os.getenv("GOOGLE_API_KEY")
 cliente_ia = genai.Client(api_key=CHAVE_API) if CHAVE_API else None
 
-CANAL_FOFOCA_ID = 1281653498143838245
+CANAL_FOFOCA_ID = int(os.getenv("CANAL_FOFOCA_ID"))
 DB_PATH = "database/bot_data.db"
 
 class Correio(commands.Cog):
