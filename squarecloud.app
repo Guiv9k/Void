@@ -1,0 +1,4 @@
+DISPLAY_NAME=VoidBot
+MAIN=main.py
+MEMORY=256
+VERSION=recommended
