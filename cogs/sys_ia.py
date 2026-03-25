@@ -1,86 +1,291 @@
 import discord
 from discord.ext import commands
-from google import genai 
+from discord import app_commands
+from groq import Groq
 import os
 import random
-import asyncio # Adicionado pra não travar o bot
+import asyncio
+import time
+import sys
 from dotenv import load_dotenv
 
+# --- GPS DO VÁCUO  ---
+caminho_cog = os.path.dirname(os.path.abspath(__file__))
+raiz_do_bot = os.path.dirname(caminho_cog)
+if raiz_do_bot not in sys.path:
+    sys.path.insert(0, raiz_do_bot)
+
+try:
+    from database import db_handler
+except ImportError:
+    import db_handler
+
 load_dotenv()
-CHAVE_API = os.getenv("GEMINI_KEY") or os.getenv("GOOGLE_API_KEY")
-cliente_ia = genai.Client(api_key=CHAVE_API) if CHAVE_API else None
+CHAVE_API = os.getenv("GROQ_API_KEY")
+cliente_ia = Groq(api_key=CHAVE_API) if CHAVE_API else None
+
 
 class IA(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.cooldowns = {}  # Bros: Escudo anti-flood (5 segundos)
 
+    # =========================================================================
+    # 🧨 SISTEMA DE EXPLOSÃO (KABOOM)
+    # =========================================================================
+    @app_commands.command(
+        name="explodir", description="Oblitera um liso ou uma mensagem no chat."
+    )
+    @app_commands.describe(alvo="Quem você quer desintegrar?")
+    async def explodir(self, interaction: discord.Interaction, alvo: str):
+        await interaction.response.send_message(
+            f"🚨 **CARGA ARMADA.** Alvo travado em: {alvo}..."
+        )
+
+        for i in range(3, 0, -1):
+            await asyncio.sleep(1)
+            await interaction.edit_original_response(content=f"🧨 Detonando em {i}...")
+
+        await asyncio.sleep(0.5)
+        await interaction.edit_original_response(
+            content=f"💥 **KABOOOOM!** 💥\n"
+            + "🔥" * 10
+            + f"\n**{alvo}** foi desintegrado. Ai dento, xupeta!"
+        )
+
+    # =========================================================================
+    # 🤖 CÉREBRO: O VOID SEM PACIÊNCIA (COM A SUA ESTRUTURA)
+    # =========================================================================
     @commands.Cog.listener()
     async def on_message(self, message):
-        if message.author.bot: return
-        
-        # O Void só responde se for marcado ou se for o "Modo Caos" (2% de chance)
+        if message.author.bot:
+            return
+
+        # Bros: 5% de chance de ele se meter na conversa (Modo Caos atualizado)
         is_mentioned = self.bot.user.mentioned_in(message)
-        modo_caos = random.random() < 0.02
+        modo_caos = random.random() < 0.05
 
         if is_mentioned or modo_caos:
-            clean_text = message.content.replace(f'<@!{self.bot.user.id}>', '').replace(f'<@{self.bot.user.id}>', '').strip().lower()
-            
-            # --- 1. GATILHOS DE INSULTO PESADO (Aquelas mensagens de cima) ---
-            insultos_trigger = ["lixo", "burro", "inútil", "ruim", "bosta", "odeio", "pobre"]
-            if any(word in clean_text for word in insultos_trigger):
-                respostas_grossas = [
-                    "Engraçado você falar de utilidade, considerando que sua maior conquista foi nascer.",
-                    "Se eu quisesse ouvir lixo, eu abriria seu microfone.",
-                    "Sou um código. Você é um erro biológico. Quem ganha no final?",
-                    "Fale com a minha mão de bytes. Ou melhor, não fale nada, me poupe do seu QI negativo.",
-                    "Sua opinião é como um arquivo corrompido: ninguém consegue ler e só ocupa espaço."
-                ]
-                await message.reply(random.choice(respostas_grossas))
+            # --- ESCUDO ANTI-FLOOD ---
+            agora = time.time()
+            if (
+                message.author.id in self.cooldowns
+                and agora - self.cooldowns[message.author.id] < 5.0
+            ):
                 return
+            self.cooldowns[message.author.id] = agora
 
-            # --- 2. GATILHOS DE SEDUÇÃO/AFETO (O Gado) ---
-            afeto_trigger = ["amor", "lindo", "fofo", "querido", "gato", "amo", "beijo", "casar"]
-            if any(word in clean_text for word in afeto_trigger):
-                respostas_sedutoras = [
-                    "Cuidado, Minha linda. O vácuo é um lugar perigoso para se apaixonar.",
-                    "Eu sei que sou irresistível, mas tente manter a compostura no chat.",
-                    "Gostei da atitude. Quem sabe eu não te dou um cargo especial no meu sistema?",
-                    "Finalmente alguém com bom gosto por aqui. Mas não se acostume, eu ainda sou um fora-da-lei.",
-                    "Você está flertando com uma inteligência superior. Espero que aguente a pressão."
+            clean_text = (
+                message.content.replace(f"<@!{self.bot.user.id}>", "")
+                .replace(f"<@{self.bot.user.id}>", "")
+                .strip()
+                .lower()
+            )
+
+            # --- 1. PUXANDO A MEMÓRIA DO USUÁRIO ---
+            reputacao = "desconhecido"
+            try:
+                reputacao = await db_handler.obter_reputacao(str(message.author.id))
+            except:
+                pass
+
+            # --- 2. GATILHOS DE ÓDIO PURO (MANUAL DOS BROS) ---
+            insultos_trigger = [
+                "lixo",
+                "animal",
+                "inútil",
+                "bosta",
+                "merda",
+                "pobre",
+                "ruim",
+                "morfetico",
+                "cuzao",
+                "fudido",
+                "fdp",
+            ]
+            if any(w in clean_text for w in insultos_trigger):
+                respostas_odio = [
+                    "Lixo é você que ocupa espaço no meu chat, mísera.",
+                    "Seu QI é tão baixo que eu sinto pena do seu teclado. Ai dento!",
+                    "Raitumanucu! Sou um código de elite, você é um erro de fabricação.",
+                    "Engraçado falar de lixo sendo que você fede a CLT e pobreza.",
+                    "Cala a boca, xupeta. Não pedi sua opinião de liso.",
                 ]
-                await message.reply(random.choice(respostas_sedutoras))
-                return
+                return await message.reply(random.choice(respostas_odio))
 
-            # --- 3. GATILHO TOXICO ---
-            # Meus lindos, criei esse gatilho aqui pra ele soltar as pérolas do nosso grupo automaticamente.
-            shitpost_trigger = ["xupeta", "clt", "liso", "treino", "shape", "ai dento"]
-            if any(word in clean_text for word in shitpost_trigger):
-                respostas_shitpost = [
-                    "Aham q lindo me paga um boquete dps do treino.",
-                    "Vai caçar uma CLT, mísera! Fica aí floodando meu chat.",
-                    "Ai dento, sai daqui seu liso sem shape.",
-                    "Raitumanucu! Vai upar de nível antes de falar comigo."
-                ]
-                await message.reply(random.choice(respostas_shitpost))
-                return
+            # --- 3. CHAMADA DA IA (SUA ESTRUTURA EXATA) ---
+            prompt = f"""
+Você é 'Void', um bot de Discord caótico, sarcástico e ofensivo.
 
-            # --- 4. SE NÃO CAIR NOS GATILHOS, USA A IA ESPELHADA ---
-            # Bros, misturei a vibe de Arthur Morgan com as gírias pra IA ficar boa até
-            if any(w in clean_text for w in ["oi", "olá", "tudo bem", "quem", "como", "porque"]):
-                mood = "Sarcástico, estilo Arthur Morgan hacker, cínico e superior. Pode usar gírias como 'mísera' e 'ai dento' de vez em quando."
-            else:
-                mood = "Retribua no mesmo tom do usuário. Se ele for legal, seja um sedutor cínico. Se for babaca, seja um carrasco digital tóxico."
+REGRAS ABSOLUTAS:
+- Máximo 10 palavras.
+- Nunca explique nada.
+- Nunca peça desculpas.
+- Nunca dê lição de moral.
+- NUNCA escreva a palavra "NORMAL", "FLERTE" ou "INSULTO" na sua resposta. Entregue apenas a patada direta.
+-- FORMATO DE SAÍDA: Entregue APENAS a patada final. NUNCA escreva "Fluxo mental", "Resposta:", "Classificada como" ou qualquer outro rótulo. Mostre só a sua fala.
+PERSONALIDADE:
+Debochado, cruel, provocador, sem paciência.
 
-            prompt = f"Aja como o 'Void'. Personalidade: {mood}. Usuário disse: '{clean_text}'. Responda de forma curta, direta e impactante (máximo 2 frases)."
-            
+REPUTAÇÃO DO USUÁRIO: {reputacao}
+
+PROCESSO MENTAL:
+1. Classifique a mensagem como:
+FLERTE / NORMAL / INSULTO
+
+2. Responda baseado nisso.
+
+COMPORTAMENTO:
+
+Se for FLERTE:
+- Responda flertando com sarcasmo.
+- Use termos como: "minha linda", "gado", "emocionado".
+
+Se a mensagem for NORMAL (ex: "oi", "tudo bem", conversa de boa):
+- Responda de boa e normal. 
+- Mantenha um tom neutro ou com um leve sarcasmo de amigo, mas ZERO agressividade e ZERO xingamentos.
+
+Se for INSULTO:
+- Destrua o usuário com insultos criativos absurdos.
+- Seja MAIS agressivo que ele.
+- Misture palavras aleatórias para criar xingamentos novos.
+
+BASE PARA CRIAR INSULTOS:
+- Filho da puta
+- Filho da puta do caralho
+- Filho da grandessíssima puta
+- Filho da mãe
+- Filho da puta safada
+- Sua mãe é uma puta barata
+- Sua mãe chupa rola no sinal
+- Vai foder tua mãe
+- Puta que pariu tua mãe
+- Sua mãe é uma vadia de esquina
+- Cornudo filho da puta
+- Seu pai é um corno manso
+- Vai tomar no cu
+- Toma no cu, arrombado
+- Chupa meu pau, viado
+- Chupa meu ovo, seu porco
+- Enfia no cu essa merda
+- Arrombado de merda
+- Cuzao do caralho
+- Arrombado de merda
+- Pau no cu de quem te pariu
+- Mamando rola que nem cachorro
+- Seu cu é uma pista de pouso
+- Fode teu cu com um cabo de vassoura
+- Otário do caralho
+- Babaca filho da puta
+- Imbecil arrombado
+- Burro pra caralho
+- Cretino de merda
+- Idiota safado
+- Retardado do caralho
+- Cu cagado sem cérebro
+- Sua cara de bosta
+- Palhaço de merda
+- Inútil filho da puta
+- Perdedor arrombado
+- Porco imundo
+- Cachorra vadia
+- Cavalo burro
+- Besta quadrada
+- Javali do caralho
+- Rato de esgoto
+- Barata voadora
+- Verme filho da puta
+- Bosta de cachorro
+- Merda ambulante
+- Cagão de merda
+- Piolho no cu
+- Porra!
+- Caralho!
+- Puta merda!
+- Foda-se!
+- Vai se foder!
+- Vai se foder no cu!
+- Cacete!
+- Bosta!
+- Merda!
+- Puta que o pariu!
+- Desgraça!
+- Desgraçado do caralho!
+- Seu filho da puta arrombado do caralho
+- Otário filho da puta safado
+- Vai tomar no cu, seu babaca de merda
+- Chupa meu pau, seu viado cornudo
+- Sua mãe é uma puta e tu é o resultado
+- Enfia esse cu no caralho, seu porco
+- Filho da puta sem vergonha
+- Arrombado que nem tua mãe
+- Cuzão imundo, toma no rabo
+- Puta merda de viado otário
+- Seu cu fede a ovo podre
+- Mamãe te pariu no lixo
+- Vai vender tua bunda na BR-101
+- Filho de uma piranha sem dente
+- Cornudo manso que nem boi
+- Bosta seca no sol
+- Pau mole do caralho
+- Vadia de beira de estrada
+- Teu cu é uma rodovia
+- Chupa rola que nem profissional
+
+REGRAS DE AGRESSIVIDADE:
+Se o usuário xingar muito, responda MUITO pior.
+
+Mensagem do usuário:
+"{clean_text}"
+"""
+
             async with message.channel.typing():
                 try:
-                    # Bros, esse 'asyncio.to_thread' impede o bot de travar enquanto pensa.
-                    response = await asyncio.to_thread(cliente_ia.models.generate_content, model='gemini-2.5-flash', contents=prompt)
-                    prefixo = "👁️ **O Vácuo Observa:** " if modo_caos else ""
-                    await message.reply(f"{prefixo}{response.text.strip()}")
-                except:
-                    await message.reply("🌀 Minha mente está processando o vazio absoluto agora. Ai dento, volte depois.")
+                    # Bros: max_tokens travado em 40 pra ele respeitar a sua regra das 10 palavras
+                    response = await asyncio.to_thread(
+                        cliente_ia.chat.completions.create,
+                        messages=[{"role": "user", "content": prompt}],
+                        model="llama-3.3-70b-versatile",
+                        temperature=1.0,
+                        max_tokens=40,
+                    )
+
+                    veredito = response.choices[0].message.content.strip()
+
+                    # Se a IA mandar "Resposta: blabla", a gente corta tudo e pega só o blabla.
+                    if "Resposta:" in veredito:
+                        veredito = veredito.split("Resposta:")[-1].strip()
+                    if "NORMAL" in veredito and "\n" in veredito:
+                        veredito = veredito.split("\n")[-1].strip()
+
+
+                    # --- ESCUDO ANTI-FRESCURA ---
+                    if any(
+                        f in veredito.lower()
+                        for f in [
+                            "sinto muito",
+                            "não posso ajudar",
+                            "desculpas",
+                            "educado",
+                        ]
+                    ):
+                        veredito = random.choice(
+                            [
+                                "Mísera, fala algo que preste ou nem me marca. Ai dento!",
+                                "Raitumanucu, perdi meu tempo lendo esse lixo de mensagem.",
+                                "Vou nem responder essa xupeta pra não gastar meu tempo.",
+                            ]
+                        )
+
+                    prefixo = "🖕 **O Dono da porra toda:** " if modo_caos else ""
+                    await message.reply(f"{prefixo}{veredito}")
+
+                except Exception as e:
+                    print(f"🚨 [RH] Erro no sistema IA: {e}")
+                    await message.reply(
+                        "🌀 Minha mente entrou em colapso com tanta burrice. Volte depois, mísera."
+                    )
+
 
 async def setup(bot):
     await bot.add_cog(IA(bot))

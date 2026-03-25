@@ -1,20 +1,21 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 import sqlite3
 import time
+import random
 
 DB_PATH = "database/bot_data.db"
 
-# --- SISTEMA DE PAGINAÇÃO (BOTÕES) ---
+# 📑 SISTEMA DE PAGINAÇÃO (BOTÕES DO RANKING)
 class VozPaginacao(discord.ui.View):
     def __init__(self, data, guilda, bot_avatar_url):
-        super().__init__(timeout=120) 
+        super().__init__(timeout=120)
         self.data = data
         self.guilda = guilda
         self.bot_avatar_url = bot_avatar_url
         self.pagina_atual = 0
-        self.itens_por_pagina = 5 
+        self.itens_por_pagina = 5
         self.total_paginas = max(1, (len(data) - 1) // self.itens_por_pagina + 1)
         self.atualizar_botoes()
 
@@ -25,9 +26,7 @@ class VozPaginacao(discord.ui.View):
     def formatar_tempo(self, minutos_totais):
         horas = minutos_totais // 60
         minutos = minutos_totais % 60
-        if horas > 0:
-            return f"{horas}h {minutos}m"
-        return f"{minutos}m"
+        return f"{horas}h {minutos}m" if horas > 0 else f"{minutos}m"
 
     def criar_embed(self):
         inicio = self.pagina_atual * self.itens_por_pagina
@@ -36,112 +35,113 @@ class VozPaginacao(discord.ui.View):
 
         embed = discord.Embed(
             title="🎙️ RANKING DOS SEM VIDA",
-            description="A elite de desocupados que mora na call do servidor e não vê a luz do sol.\n** **",
-            color=0x00FFFF 
+            description="A elite de desocupados que mora na call e não vê a luz do sol.\n** **",
+            color=0x00FFFF,
         )
         embed.set_thumbnail(url=self.bot_avatar_url)
 
         texto_ranking = ""
         for i, user_data in enumerate(itens_pagina):
-            user_id = int(user_data[0])
-            tempo_minutos = user_data[1]
+            user_id, tempo_minutos = int(user_data[0]), user_data[1]
             rank = inicio + i + 1
-
             membro = self.guilda.get_member(user_id)
             nome = membro.display_name if membro else f"Fugitivo ({user_id})"
+            icone = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, "🎧")
+            texto_ranking += f"> **{icone} #{rank}** | 👤 **{nome}**\n> ⏳ Tempo: `{self.formatar_tempo(tempo_minutos)}`\n> ───────────────\n"
 
-            icone = "🎧"
-            if rank == 1: icone = "🥇"
-            elif rank == 2: icone = "🥈"
-            elif rank == 3: icone = "🥉"
-
-            tempo_formatado = self.formatar_tempo(tempo_minutos)
-
-            texto_ranking += f"> **{icone} #{rank}** | 👤 **{nome}**\n> ⏳ Tempo em Call: `{tempo_formatado}`\n> ───────────────\n"
-
-        embed.add_field(name="Classificação Geral", value=texto_ranking if texto_ranking else "O silêncio domina o servidor. Ninguém entrou em call.", inline=False)
-        embed.set_footer(text=f"Página {self.pagina_atual + 1} de {self.total_paginas} • O Vácuo escuta suas fofocas.", icon_url=self.bot_avatar_url)
+        embed.add_field(name="Classificação Geral", value=texto_ranking or "O silêncio domina o vácuo.", inline=False)
+        embed.set_footer(text=f"Página {self.pagina_atual + 1} de {self.total_paginas}", icon_url=self.bot_avatar_url)
         return embed
 
-    @discord.ui.button(label="◀ Voltar", style=discord.ButtonStyle.secondary, custom_id="prev")
+    @discord.ui.button(label="◀ Voltar", style=discord.ButtonStyle.secondary)
     async def btn_anterior(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.pagina_atual -= 1
         self.atualizar_botoes()
         await interaction.response.edit_message(embed=self.criar_embed(), view=self)
 
-    @discord.ui.button(label="Avançar ▶", style=discord.ButtonStyle.primary, custom_id="next")
+    @discord.ui.button(label="Avançar ▶", style=discord.ButtonStyle.primary)
     async def btn_proximo(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.pagina_atual += 1
         self.atualizar_botoes()
         await interaction.response.edit_message(embed=self.criar_embed(), view=self)
 
 
-# --- O SISTEMA PRINCIPAL ---
+# 🎙️ CLASSE PRINCIPAL (O MOTOR DE VOZ)
 class Voz(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.tempos_call = {} 
         self.preparar_banco()
+        # 🔥 Inicia o cronômetro automático
+        self.atualizar_tempo_real.start()
 
     def preparar_banco(self):
         conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
         try:
-            c.execute("ALTER TABLE usuarios ADD COLUMN tempo_voz INTEGER DEFAULT 0")
+            conn.execute("ALTER TABLE usuarios ADD COLUMN tempo_voz INTEGER DEFAULT 0")
             conn.commit()
         except sqlite3.OperationalError:
-            pass 
+            pass
         conn.close()
 
-    @commands.Cog.listener()
-    async def on_voice_state_update(self, member, before, after):
-        if member.bot: return
+    def cog_unload(self):
+        self.atualizar_tempo_real.cancel()
 
-        # Entrou na call
-        if before.channel is None and after.channel is not None:
-            self.tempos_call[member.id] = time.time()
+    # 💓 LOOP DE 1 MINUTO: Dá XP e Tempo pra quem está em call
+    @tasks.loop(minutes=1.0)
+    async def atualizar_tempo_real(self):
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
 
-        # Saiu da call
-        elif before.channel is not None and after.channel is None:
-            if member.id in self.tempos_call:
-                tempo_entrou = self.tempos_call.pop(member.id)
-                tempo_ficou_segundos = time.time() - tempo_entrou
-                minutos_ficados = int(tempo_ficou_segundos // 60)
+        for guild in self.bot.guilds:
+            for channel in guild.voice_channels:
+                for member in channel.members:
+                    if member.bot or member.voice.self_deaf:
+                        continue
 
-                if minutos_ficados > 0:
-                    # xp padrão: 5 por minuto
-                    xp_ganho = minutos_ficados * 5
-
-                    conn = sqlite3.connect(DB_PATH)
-                    c = conn.cursor()
+                    # Garante que o usuário existe
+                    cursor.execute("INSERT OR IGNORE INTO usuarios (user_id, xp, nivel, moedas) VALUES (?, 0, 1, 0)", (str(member.id),))
                     
-                    # Pup Minha linda, aqui eu aplico o bônus de gado. Se a pessoa tiver conjuge, ganha +15%
-                    c.execute("SELECT conjuge FROM usuarios WHERE user_id = ?", (str(member.id),))
-                    res = c.fetchone()
-                    if res and res[0] is not None:
-                        # Multiplica por 1.15 pra dar os 15% de bônus
-                        xp_ganho = int(xp_ganho * 1.15) 
+                    # Puxa dados pro Buff de 15% e Level Up de 1000 XP
+                    cursor.execute("SELECT xp, nivel, conjuge FROM usuarios WHERE user_id = ?", (str(member.id),))
+                    res = cursor.fetchone()
+                    
+                    if res:
+                        xp_atual, nivel_atual, conjuge = res
+                        xp_ganho = 5 # Base
+                        
+                        # 15% bônus pro gado
+                        if conjuge and conjuge != "Solteirão Liso":
+                            xp_ganho = int(xp_ganho * 1.15)
 
-                    c.execute("UPDATE usuarios SET xp = xp + ?, tempo_voz = tempo_voz + ? WHERE user_id = ?", 
-                              (xp_ganho, minutos_ficados, str(member.id)))
-                    conn.commit()
-                    conn.close()
+                        novo_xp = xp_atual + xp_ganho
+                        novo_nivel = nivel_atual
+                        
+                        # 1000 XP FIXO
+                        while novo_xp >= 1000:
+                            novo_xp -= 1000
+                            novo_nivel += 1
 
-    @app_commands.command(name="ranking_call", description="Expõe a cara dos viciados que moram na call do servidor.")
+                        cursor.execute(
+                            "UPDATE usuarios SET xp = ?, nivel = ?, tempo_voz = tempo_voz + 1 WHERE user_id = ?",
+                            (novo_xp, novo_nivel, str(member.id))
+                        )
+        conn.commit()
+        conn.close()
+
+    @app_commands.command(name="ranking_call", description="Ranking dos desocupados em call.")
     async def ranking_call(self, interaction: discord.Interaction):
         await interaction.response.defer()
         
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("SELECT user_id, tempo_voz FROM usuarios WHERE tempo_voz > 0 ORDER BY tempo_voz DESC")
-        todos_usuarios = c.fetchall()
+        todos = c.fetchall()
         conn.close()
 
-        if not todos_usuarios:
-            await interaction.followup.send("🌀 Ninguém registrou tempo em call ainda. Vão conversar, bando de antissocial!", ephemeral=True)
-            return
+        if not todos:
+            return await interaction.followup.send("🌀 Ninguém registrou tempo ainda. Vão conversar!", ephemeral=True)
 
-        view = VozPaginacao(todos_usuarios, interaction.guild, self.bot.user.display_avatar.url)
+        view = VozPaginacao(todos, interaction.guild, self.bot.user.display_avatar.url)
         await interaction.followup.send(embed=view.criar_embed(), view=view)
 
 async def setup(bot):
